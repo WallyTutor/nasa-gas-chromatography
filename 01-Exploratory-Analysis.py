@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 from pathlib import Path
+import re
 from zipfile import ZipFile
-from IPython import embed
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 
 # Relevant data paths.
@@ -46,28 +47,78 @@ def get_all_data_pure_compound(cid_list):
     return [get_row_data(cid) for cid in cid_list]
 
 
-# # Check signature of pure compounds.
-# for cid_group, cid_list in enumerate(compounds_ids):
-#     print(f"Processing cid_group = {cid_group}")
-#     cid_data = get_all_data_pure_compound(cid_list)
+# Get datasets of pure compounds.
+compounds_dfs = [get_all_data_pure_compound(cid_list)
+                 for cid_list in compounds_ids]
 
-#     plt.close("all")
-#     plt.style.use("seaborn-white")
-
-#     fig, ax = plt.subplots()
-
-#     for k, df in enumerate(cid_data):
-#         # Here we don't consider different exit times for same mass
-#         # so that data is ordered by mass, that is checked elsewhere.
-#         df = df.sort_values("mass")
-
-#         x = df["mass"].to_numpy()
-#         y = df["intensity"].to_numpy()
-#         ax.plot(x, y)
-
-#     ax.grid(linestyle=":")
-#     fig.tight_layout()
-#     plt.savefig(DIR_PROC / f"phase1/pic{cid_group}", dpi=200)
+# Number of digits in mass spectra.
+digits = 2
 
 
-embed(colors="Linux")
+def reduce_mass_spectra(df, digits=digits):
+    """ Reduce number of masses assuming detector tolerance. """
+    df["mass"] = df.mass.round(digits)
+    return df
+
+
+# Let's get simpler spectra.
+reduced_mass_dfs = [[reduce_mass_spectra(df) for df in group]
+                    for group in compounds_dfs]
+
+
+# Standardized mass index.
+masses = np.arange(5.0, 600.0+1.0e-09, pow(10, -digits))
+
+
+def get_mass_signature(df_orig):
+    """ Get a time-independent mass spectra signature. """
+    df = df_orig.copy()
+    df.sort_values("mass", inplace=True)
+
+    df = df.groupby("mass").sum()
+    df.drop(columns=["time"], inplace=True)
+
+    index = df.index.union(masses)
+    df = df.reindex(index, fill_value=0.0)
+
+    df.intensity /= df.intensity.max()
+    df.intensity = np.clip(df.intensity, 0.0, 1.0)
+
+    return df
+
+
+# Get mass spectra signature of data.
+mass_sign_dfs = [[get_mass_signature(df) for df in group]
+                 for group in reduced_mass_dfs]
+
+
+# Maximum number of spectra to plot (avoid overflow).
+max_lines = 10
+
+# Check signature of pure compounds.
+for cid_group, cid_list in enumerate(mass_sign_dfs):
+    print(f"Processing cid_group = {cid_group}")
+    if not len(cid_list):
+        print(f"cid_group {cid_group} is empty")
+        continue
+
+    plt.close("all")
+    plt.style.use("seaborn-white")
+
+    fig, ax = plt.subplots()
+
+    for k, df in enumerate(cid_list):
+        if k > max_lines:
+            break
+
+        x = df.index.to_numpy()
+        y = df.intensity.to_numpy()
+        ax.plot(x, y + 0.5 * k)
+
+    ax.grid(linestyle=":")
+    fig.tight_layout()
+
+    plt.savefig(DIR_PROC / f"phase1/pic{cid_group}", dpi=200)
+
+
+# from IPython import embed; embed(colors="Linux")
