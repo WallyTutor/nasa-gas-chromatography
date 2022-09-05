@@ -72,6 +72,8 @@ masses = np.arange(5.0, 600.0+1.0e-09, pow(10, -digits))
 
 def get_mass_signature(df_orig):
     """ Get a time-independent mass spectra signature. """
+    # FIXME this is not doing what I expected
+    
     df = df_orig.copy()
     df.sort_values("mass", inplace=True)
 
